@@ -12,7 +12,7 @@
     "cf-typegen": "wrangler types",
     "db:migrate": "wrangler d1 migrations apply DB --local",
     "setup:local": "node scripts/setup-local.mjs",
-    "test": "npm run build && node --test tests/finance.test.mjs"
+    "test": "npm run build && node --test tests/finance.test.mjs tests/statements.test.mjs"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.5",

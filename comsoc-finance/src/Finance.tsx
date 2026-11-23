@@ -45,6 +45,8 @@ export default function Finance({ section, data, user, refresh }: {
   const [from, setFrom] = useState('')
   const [through, setThrough] = useState('')
   const [accountFilter, setAccountFilter] = useState('')
+  const [receiptEvent, setReceiptEvent] = useState<string | null>(null)
+  const [receiptId, setReceiptId] = useState('')
   const treasurer = user.role === 'treasurer'
   const accounts = fromRows(data.accounts)
   const events = fromRows(data.events)
@@ -204,9 +206,53 @@ export default function Finance({ section, data, user, refresh }: {
           column('created_by', 'Recorded by'), column('created_at', 'Recorded'),
         ]} />}
       </>
-    case 'receipts':
+    case 'receipts': {
+      const groups = new Map<string, Row[]>()
+      const transactionEvents = new Map(data.transactions.map((row) => [row.id, row.event_id]))
+      const obligationEvents = new Map(data.obligations.map((row) => [row.id, row.event_id]))
+      const eventIds = new Set(data.events.map((row) => row.id))
+      for (const receipt of data.receipts) {
+        const id = transactionEvents.get(receipt.transaction_id) ?? obligationEvents.get(receipt.obligation_id)
+        const key = id && eventIds.has(id) ? String(id) : ''
+        const rows = groups.get(key) ?? []
+        rows.push(receipt)
+        groups.set(key, rows)
+      }
+      const groupedReceipts = [...data.events.map(({ id, name }) => ({ id: String(id), name: String(name) })),
+        { id: '', name: 'No event assigned' }]
+      const selectedEvent = groupedReceipts.find(({ id }) => id === receiptEvent)
+      const selectedReceipt = (groups.get(receiptEvent ?? '') ?? []).find(({ id }) => id === receiptId)
+      const sourceTransaction = data.transactions.find(({ id }) => id === selectedReceipt?.transaction_id)
+      const sourceObligation = data.obligations.find(({ id }) => id ===
+        (selectedReceipt?.obligation_id ?? sourceTransaction?.obligation_id))
+      const purchase = data.purchases.find((row) => (sourceTransaction && row.transaction_id === sourceTransaction.id) ||
+        (sourceObligation && row.obligation_id === sourceObligation.id))
       return <>
-        {table('receipts', 'Receipt files')}
+        <section className="panel grid gap-3">
+          {selectedReceipt ? <>
+            <button className="action justify-self-start" onClick={() => setReceiptId('')}>Back to event receipts</button>
+            <h2>{selectedReceipt.filename}</h2>
+            <div><h3 className="font-semibold">Items on the linked record</h3>
+              <p>{purchase?.items ?? sourceTransaction?.description ?? sourceObligation?.description ?? 'No item details recorded.'}</p></div>
+            <a className="action justify-self-start" href={'/api/receipts/' + selectedReceipt.id} target="_blank" rel="noreferrer">Open file</a>
+          </> : selectedEvent ? <>
+            <button className="action justify-self-start" onClick={() => setReceiptEvent(null)}>Back to receipt events</button>
+            <h2>{selectedEvent.name}</h2>
+            <ul>{groups.get(selectedEvent.id)?.map((receipt) => <li key={String(receipt.id)}>
+              <button className="action" onClick={() => setReceiptId(String(receipt.id))}>{receipt.filename}</button>
+            </li>)}</ul>
+            {!groups.has(selectedEvent.id) && <p>No receipts for this event.</p>}
+          </> : <>
+            <h2>Receipt events</h2>
+            <ul>{groupedReceipts.filter(({ id }) => id || groups.has(id)).map(({ id, name }) => {
+              const count = groups.get(id)?.length ?? 0
+              return <li key={id}><button className="action" onClick={() => setReceiptEvent(id)}>
+                {name} · {count} {count === 1 ? 'receipt' : 'receipts'}
+              </button></li>
+            })}</ul>
+            {!data.events.length && !groups.size && <p>No events or receipts.</p>}
+          </>}
+        </section>
         {form('Upload receipt', 'receipts', [
           field('transaction_id', 'Transaction (choose one target)', { options: transactions, optional: true }),
           field('obligation_id', 'Obligation (choose one target)', { options: obligationsById, optional: true }),
@@ -224,6 +270,7 @@ export default function Finance({ section, data, user, refresh }: {
           column('notes', 'Notes'), column('created_by', 'Recorded by'), column('created_at', 'Date'),
         ]} />
       </>
+    }
     case 'purchases':
       return <>
         <RecordTable title="Purchase history" rows={data.purchases} columns={[

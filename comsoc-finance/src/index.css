@@ -1,12 +1,24 @@
-﻿@import "tailwindcss";
+@import "tailwindcss";
 
 @layer base {
+  :root {
+    --finance-lavender: #b6aac7;
+    --finance-periwinkle: #9f9bc3;
+    --finance-sea-glass: #9dbec3;
+    --finance-mist: #d8e6e8;
+    --finance-ivory: #faf7ef;
+    --finance-waves:
+      repeating-radial-gradient(ellipse at 70% 100%, transparent 0 6px, rgb(250 247 239 / 75%) 7px 8px, transparent 9px 13px),
+      repeating-radial-gradient(ellipse at 45% 100%, transparent 0 7px, rgb(250 247 239 / 55%) 8px 9px, transparent 10px 15px);
+    --finance-wave-size: 9rem 4rem;
+  }
+
   body {
-    @apply min-h-screen bg-[#f6f4f3] text-[#241b21] antialiased;
+    @apply min-h-screen bg-[#f5f5f8] font-sans text-[#302a42] antialiased;
   }
 
   :focus-visible {
-    @apply outline-2 outline-offset-2 outline-[#a75372];
+    @apply outline-2 outline-offset-2 outline-[#594d7e];
   }
 }
 
@@ -16,7 +28,7 @@
   }
 
   .sidebar {
-    @apply bg-[#2c1421] px-4 py-4 text-white lg:sticky lg:top-0 lg:h-dvh lg:overflow-y-auto lg:px-5 lg:py-7;
+    @apply border-r border-[#ded9e7] bg-white px-4 py-4 text-[#302a42] lg:sticky lg:top-0 lg:h-dvh lg:overflow-y-auto lg:px-5 lg:py-7;
   }
 
   .brand {
@@ -24,11 +36,11 @@
   }
 
   .brand small {
-    @apply block text-sm font-normal text-[#e0becd];
+    @apply block text-sm font-normal text-[#5f576e];
   }
 
   .brand-mark {
-    @apply grid size-10 place-items-center rounded-xl bg-[#f1dbe5] text-xl font-bold text-[#682440];
+    @apply grid size-10 place-items-center rounded-xl bg-[#eee8f4] text-xl font-bold text-[#594d7e];
   }
 
   .navigation {
@@ -36,11 +48,11 @@
   }
 
   .navigation a {
-    @apply flex min-h-11 shrink-0 items-center rounded-lg px-3 text-sm font-medium text-[#eedfe6] hover:bg-[#462536];
+    @apply flex min-h-11 shrink-0 items-center rounded-lg px-3 text-sm font-medium text-[#554c66] hover:bg-[#efebf5];
   }
 
   .navigation a[aria-current="page"] {
-    @apply bg-[#67314a] text-white;
+    @apply bg-[#eee8f4] text-[#594d7e];
   }
 
   .content {
@@ -48,7 +60,9 @@
   }
 
   .page-heading {
-    @apply mb-6 rounded-2xl bg-[#672740] px-5 py-7 text-white sm:px-8 sm:py-9;
+    @apply mb-6 rounded-2xl border border-[#ded9e7] bg-white px-5 py-7 sm:px-8 sm:py-9;
+    background-image: linear-gradient(90deg, var(--finance-ivory), transparent 75%),
+      linear-gradient(122deg, var(--finance-lavender), var(--finance-mist));
   }
 
   .page-heading h1 {
@@ -56,7 +70,7 @@
   }
 
   .page-heading p {
-    @apply mt-2 max-w-xl text-[#f1dce5];
+    @apply mt-2 max-w-xl text-[#5f576e];
   }
 
   .metric-grid {
@@ -64,15 +78,15 @@
   }
 
   .metric, .panel {
-    @apply min-w-0 rounded-xl border border-[#e8dfe4] bg-white p-5;
+    @apply min-w-0 rounded-xl border border-[#ded9e7] bg-white p-5;
   }
 
   .metric dt {
-    @apply text-sm font-medium text-stone-600;
+    @apply text-sm font-medium text-[#5f576e];
   }
 
   .metric dd {
-    @apply mt-2 text-2xl font-semibold text-[#672740];
+    @apply mt-2 text-2xl font-semibold text-[#594d7e];
   }
 
   .dashboard-grid {
@@ -88,11 +102,11 @@
   }
 
   .panel p {
-    @apply mt-3 text-stone-600;
+    @apply mt-3 text-[#5f576e];
   }
 
   .action {
-    @apply inline-flex min-h-11 items-center rounded-md font-semibold text-[#672740] underline decoration-[#c59bad] underline-offset-4 hover:decoration-current;
+    @apply inline-flex min-h-11 items-center rounded-md font-semibold text-[#594d7e] underline decoration-[#9dbec3] underline-offset-4 hover:decoration-current;
   }
 
   .field {
@@ -100,11 +114,11 @@
   }
 
   .field input, .field select {
-    @apply min-h-11 w-full min-w-0 rounded-lg border border-stone-300 bg-white px-3 text-base font-normal;
+    @apply min-h-11 w-full min-w-0 rounded-lg border border-[#cfc7db] bg-white px-3 text-base font-normal;
   }
 
   .primary-button {
-    @apply min-h-11 rounded-lg bg-[#672740] px-4 py-2 font-semibold text-white hover:bg-[#532035];
+    @apply min-h-11 rounded-lg bg-[#594d7e] px-4 py-2 font-semibold text-white hover:bg-[#483b6b];
   }
 }
 

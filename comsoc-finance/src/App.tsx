@@ -4,6 +4,7 @@ import type { Row, Session, User } from './api'
 import Finance, { resources } from './Finance'
 import type { FinanceData } from './Finance'
 import { RecordForm } from './Records'
+import StatementDemo from './StatementDemo'
 
 const sections = [
   { id: 'dashboard', label: 'Dashboard', description: 'Review your balances, spending, and commitments.' },
@@ -73,6 +74,7 @@ function Workspace({ user, reloadSession }: { user: User; reloadSession: () => P
           <span>COMSOC <small>Finance</small></span>
         </a>
         <nav className="navigation" aria-label="Finance modules">
+          <a href="/">Back to Financial Workspaces</a>
           {sections.map(({ id, label }) => (
             <a key={id} href={'#' + id} aria-current={id === section.id ? 'page' : undefined}>{label}</a>
           ))}
@@ -125,7 +127,12 @@ export default function App() {
 
   useEffect(() => { void reload() }, [])
 
-  if (session?.user) return <Workspace user={session.user} reloadSession={reload} />
+  if (session?.user) {
+    if (window.location.pathname.replace(/\/$/, '') === '/local-records') {
+      return <Workspace user={session.user} reloadSession={reload} />
+    }
+    return <StatementDemo user={session.user} onLogout={async () => { await api('logout', {}); await reload() }} />
+  }
 
   return (
     <main className="mx-auto grid max-w-2xl gap-4 p-4 sm:p-8">
@@ -147,7 +154,10 @@ export default function App() {
           </p>
         </RecordForm>
       ) : session ? (
-        <RecordForm key="login" title="Sign in" resource="login" label="Sign in" onSaved={() => void reload()} fields={[
+        <RecordForm key="login" title="Sign in" resource="login" label="Sign in" onSaved={() => {
+          window.history.replaceState(null, '', '/')
+          void reload()
+        }} fields={[
           { key: 'username', label: 'Username', options: [{ value: 'treasurer', label: 'Treasurer' }, { value: 'auditor', label: 'Auditor' }] },
           { key: 'password', label: 'Password', type: 'password', autoComplete: 'current-password' },
         ]} />

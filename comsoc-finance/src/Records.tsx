@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { api, money } from './api'
+import { downloadCsv } from './csv'
 import type { Row } from './api'
 
 export type Option = { value: string; label: string }
@@ -79,11 +80,6 @@ function display(row: Row, column: Column) {
     (column.money && typeof value === 'number' ? money(value) : String(value))
 }
 
-function csvCell(value: string) {
-  const safe = /^[\s]*[=+\-@\t\r]/.test(value) ? "'" + value : value
-  return '"' + safe.replaceAll('"', '""') + '"'
-}
-
 export function RecordTable({ title, rows, columns, receiptLinks = false, report = false }: {
   title: string; rows: Row[]; columns: Column[]; receiptLinks?: boolean; report?: boolean
 }) {
@@ -104,14 +100,9 @@ export function RecordTable({ title, rows, columns, receiptLinks = false, report
   function exportCsv() {
     const lines = [columns.map((c) => c.label), ...shown.map((row) => columns.map((column) =>
       column.money && typeof row[column.key] === 'number'
-        ? (Number(row[column.key]) / 100).toFixed(2) : display(row, column),
+        ? Number(row[column.key]) / 100 : display(row, column),
     ))]
-    const url = URL.createObjectURL(new Blob(['\uFEFF', lines.map((line) => line.map(csvCell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' }))
-    const link = document.createElement('a')
-    link.href = url
-    link.download = title.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-') + '.csv'
-    link.click()
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+    downloadCsv(title.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-') + '.csv', lines)
   }
 
   return (
