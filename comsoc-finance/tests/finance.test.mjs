@@ -159,6 +159,50 @@ test('roles, ledger, budgets, settlements, receipts and reconciliations share th
     const receipt = await post('receipts', upload, auditor)
     await call('receipts/' + receipt.id, { status: 401 })
     assert.equal(await (await call('receipts/' + receipt.id, { cookie: treasurer })).text(), '%PDF-1.4\n')
+
+    const workspaceId = crypto.randomUUID()
+    const workspaceEntryId = crypto.randomUUID()
+    const workspace = {
+      id: workspaceId, name: 'Saved statement', year: '2026–2027', description: '', archived: false,
+      opening: { Cash: 100000, GCash: 0 }, events: [], entries: [{
+        id: workspaceEntryId, day, eventId: '', category: '', kind: 'Expense', items: [
+          { name: 'Paper', quantity: 1, price: 5000, account: 'Cash' },
+          { name: 'Tape', quantity: 1, price: 2500, account: 'GCash' },
+        ], account: 'Cash', status: 'Paid', person: 'Officer', notes: '',
+      }],
+    }
+    async function saveWorkspace(statement, revision, cookie, file = false, status = 200) {
+      const form = new FormData()
+      form.set('revision', String(revision))
+      form.set('statement', JSON.stringify(statement))
+      if (file) form.set('receipt:' + workspaceEntryId, new Blob(['%PDF-1.4\n'], { type: 'application/pdf' }), 'paper.pdf')
+      return post('statements/' + statement.id, form, cookie, status)
+    }
+    await call('statements', { status: 401 })
+    assert.deepEqual(await read('statements', treasurer), [])
+    await saveWorkspace(workspace, 0, auditor, false, 403)
+    assert.equal((await saveWorkspace(workspace, 0, treasurer)).revision, 1)
+    const reviewed = { ...workspace, entries: [{ ...workspace.entries[0], review: 'Verified', receiptItemIndexes: [0] }] }
+    assert.equal((await saveWorkspace(reviewed, 1, auditor, true)).revision, 2)
+    const freshSession = await login('treasurer')
+    const [{ statement: saved, revision }] = await read('statements', freshSession)
+    assert.equal(revision, 2)
+    assert.equal(saved.entries[0].review, 'Verified')
+    assert.deepEqual(saved.entries[0].receiptItemIndexes, [0])
+    assert.equal(saved.entries[0].receipt.name, 'paper.pdf')
+    const savedReceipt = 'statements/' + workspaceId + '/' + workspaceEntryId
+    await call(savedReceipt, { status: 401 })
+    assert.equal(await (await call(savedReceipt, { cookie: freshSession })).text(), '%PDF-1.4\n')
+    await saveWorkspace(workspace, 1, treasurer, false, 409)
+    await saveWorkspace({ ...reviewed, name: 'Unauthorized name' }, 2, auditor, false, 403)
+    await saveWorkspace({ ...reviewed, entries: [{ ...reviewed.entries[0], items: [{ name: 'Changed', quantity: 1, price: 100 }] }] },
+      2, treasurer, false, 403)
+    const deleteForm = new FormData()
+    deleteForm.set('revision', '2')
+    deleteForm.set('delete', 'yes')
+    await post('statements/' + workspaceId, deleteForm, treasurer, 200)
+    assert.deepEqual(await read('statements', treasurer), [])
+    await call(savedReceipt, { cookie: treasurer, status: 404 })
     await post('logout', {}, treasurer, 200)
     await call('accounts', { cookie: treasurer, status: 401 })
     await post('password', { currentPassword: password, newPassword: randomBytes(24).toString('hex') }, auditor, 200)

@@ -1,20 +1,25 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { money } from './api'
+import { downloadCsv } from './csv'
 import type { User } from './api'
 import StatementAllocation from './StatementAllocation'
 import StatementDialog from './StatementDialog'
 import StatementLedger, { ReceiptItems, ReceiptPreview, Sheet, today, value } from './StatementLedger'
 import type { Change } from './StatementLedger'
-import { accounts, amount, demoStatements, finance, ledger, movements, parseMoney, updateStatement } from './statementModel'
+import { accounts, amount, finance, ledger, movements, parseMoney } from './statementModel'
+import { useStatements } from './useStatements'
+import ThemePicker from './ThemePicker'
 import type { Account, Statement } from './statementModel'
 import './statementDemo.css'
 
 const pages = ['Dashboard', 'General Ledger', 'Final Allocation', 'Cash & GCash', 'Receipts', 'Reconciliation', 'Reports'] as const
 type Page = typeof pages[number] | 'Financial Workspaces'
 
-export default function StatementDemo({ user, onLogout }: { user: User; onLogout: () => Promise<void> }) {
-  const [statements, setStatements] = useState(demoStatements)
+export default function StatementDemo({ demo, user, onLogout, receiptUploads }: {
+  demo: boolean; user: User; onLogout: () => Promise<void>; receiptUploads: boolean
+}) {
+  const { statements, change: updateStatement, loading, pending, error: storageError, reload } = useStatements(demo)
   const [selected, select] = useState('')
   const [page, go] = useState<Page>('Dashboard')
   const [logoutError, setLogoutError] = useState('')
@@ -22,10 +27,26 @@ export default function StatementDemo({ user, onLogout }: { user: User; onLogout
   const [entryId, setEntryId] = useState('')
   const [ledgerEvent, setLedgerEvent] = useState('')
   const [menu, setMenu] = useState(false)
+  const menuToggle = useRef<HTMLButtonElement>(null)
+  const menuClose = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (menu) menuClose.current?.focus()
+  }, [menu])
+  function closeMenu() {
+    setMenu(false)
+    menuToggle.current?.focus()
+  }
   const statement = statements.find(({ id }) => id === selected)
   const treasurer = user.role === 'treasurer'
-  const editable = treasurer && !statement?.archived
-  const change: Change = (update) => setStatements((current) => updateStatement(current, selected, update))
+  const ready = !loading && !storageError
+  const editable = treasurer && ready && !statement?.archived
+  const change: Change = (update) => updateStatement(selected, (current) => current && update(current))
+  useEffect(() => {
+    if (!pending && !storageError) return
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [pending, storageError])
   const selectStatement = (id: string) => {
     select(id)
     setEventId('')
@@ -42,22 +63,32 @@ export default function StatementDemo({ user, onLogout }: { user: User; onLogout
     window.scrollTo(0, 0)
   }
 
-  const logout = <><button onClick={() => {
+  const logout = <><button disabled={Boolean(pending || storageError)} onClick={() => {
     setLogoutError('')
     void onLogout().catch((error: unknown) => setLogoutError(error instanceof Error ? error.message : 'Could not sign out.'))
   }}>Sign out</button>{logoutError && <p className="demo-error" role="alert">{logoutError}</p>}</>
+  const status = <>{pending > 0 && <p role="status" className="demo-notice">Saving changes…</p>}
+    {storageError && <div className="demo-panel mb-4">
+      <p className="demo-error" role="alert">{storageError} {statements.length > 0 ? 'Unsaved changes may appear on this screen.' : ''}</p>
+      <button className="demo-link" disabled={Boolean(pending)} onClick={() => void reload()}>Reload saved statements</button>
+    </div>}</>
 
   if (!statement) return <div className="statement-demo demo-chooser">
     <header className="demo-chooser-bar">
       <span className="demo-brand"><span className="demo-brand-mark" aria-hidden="true">C</span>COMSOC Finance</span>
-      <div className="demo-actions"><span className="demo-user">{user.display_name} · {user.role}</span>{logout}</div>
+      <div className="demo-actions"><ThemePicker /><span className="demo-user">{user.display_name} · {user.role}</span>{logout}</div>
     </header>
     <main className="demo-chooser-content">
-      <Workspaces statements={statements}
-        change={(id, update) => setStatements((current) => updateStatement(current, id, update))}
-        edit={treasurer} open={(id) => { selectStatement(id); navigate('Dashboard') }}
-        create={(row) => setStatements((current) => [...current, row])}
-        remove={(id) => setStatements((current) => current.filter((row) => row.id !== id))} />
+      {status}
+      {loading && <p role="status">Loading saved statements…</p>}
+      <Workspaces statements={statements} demo={demo}
+        change={(id, update) => updateStatement(id, (current) => current && update(current))}
+        edit={treasurer && ready} open={(id) => { selectStatement(id); navigate('Dashboard') }}
+        create={(row) => updateStatement(row.id, () => row)}
+        remove={(id) => updateStatement(id, () => undefined)} />
+      {!pending && !storageError && <a className="mt-4 inline-block underline" href={demo ? '/' : '/workspace-demo'}>
+        {demo ? 'Return to saved workspaces' : 'Open practice workspaces'}
+      </a>}
       <div className="demo-folder-row demo-local-records">
         <a className="demo-folder-open" href="/local-records">
           <span className="demo-folder-icon" aria-hidden="true" />
@@ -68,46 +99,66 @@ export default function StatementDemo({ user, onLogout }: { user: User; onLogout
   </div>
 
   return <div className="statement-demo">
-    <aside className="demo-navigation">
+    <aside className="demo-navigation" onKeyDown={(event) => {
+      if (menu && event.key === 'Escape') closeMenu()
+    }}>
       <div className="demo-sidebar-header">
         <button className="demo-brand" title="Return to Financial Workspaces" onClick={() => navigate('Financial Workspaces')}>
           <span className="demo-brand-mark" aria-hidden="true">C</span><span>COMSOC Finance</span>
         </button>
-        <button className="demo-mobile-menu" aria-expanded={menu} aria-controls="statement-menu" onClick={() => setMenu(!menu)}>
+        <span className="demo-mobile-brand"><span className="demo-brand-mark" aria-hidden="true">C</span>COMSOC Finance</span>
+        <button className="demo-mobile-menu" ref={menuToggle} aria-expanded={menu} aria-controls="statement-menu" onClick={() => setMenu(!menu)}>
           <span className={menu ? 'demo-menu-icon is-open' : 'demo-menu-icon'} aria-hidden="true" />
           <span>{menu ? 'Close menu' : 'Menu'}</span>
         </button>
       </div>
+      {menu && <button className="demo-menu-backdrop" tabIndex={-1} aria-label="Dismiss menu" onClick={closeMenu} />}
       <div id="statement-menu" className={menu ? 'demo-menu is-open' : 'demo-menu'}>
+        <div className="demo-drawer-heading">
+          <strong>COMSOC Finance</strong>
+          <button type="button" className="demo-icon" ref={menuClose} aria-label="Close menu" onClick={closeMenu}>×</button>
+        </div>
         <nav aria-label="Statement pages">
           {pages.map((name) => <button key={name} aria-current={page === name ? 'page' : undefined}
             onClick={() => navigate(name)}>{name}</button>)}
         </nav>
+        <button type="button" className="demo-sidebar-return demo-mobile-return" onClick={() => navigate('Financial Workspaces')}>
+          <span aria-hidden="true">←</span> Back to Financial Workspaces
+        </button>
         <div className="demo-sidebar-account">
           <span className="demo-sidebar-avatar" aria-hidden="true">{user.display_name.trim().slice(0, 1).toUpperCase() || '?'}</span>
           <div className="demo-sidebar-identity"><strong>{user.display_name}</strong><span>{user.role}</span></div>
+          <ThemePicker />
           {logout}
         </div>
       </div>
     </aside>
     <main className="demo-content">
-      <header className="demo-top">
-        <div><div className="demo-tag">{statement.name} · Demo data</div><h1>{page}</h1></div>
-        <button onClick={() => navigate('Financial Workspaces')}>Switch workspace</button>
+      <header className="demo-top demo-top-with-back">
+        <button type="button" className="demo-icon demo-workspace-back" aria-label="Back to Financial Workspaces"
+          title="Back to Financial Workspaces" onClick={() => navigate('Financial Workspaces')}>←</button>
+        <div><div className="demo-tag">{statement.name}{demo && ' · Demo'}</div><h1>{page}</h1></div>
       </header>
-      <p className="demo-notice">Sample data and selected receipts stay in this browser tab until you refresh or leave the demo.</p>
+      {status}
       {statement.archived && <p className="demo-notice">This statement is archived. Reopen it in Financial Workspaces to make changes.</p>}
       {page === 'General Ledger' && <StatementLedger key={[selected, user.role, ledgerEvent, entryId].join(':')} statement={statement} change={change}
-        edit={editable} auditor={!treasurer && !statement.archived} initial={entryId} eventFilter={ledgerEvent} />}
+        edit={editable} auditor={ready && !treasurer && !statement.archived} receiptUploads={receiptUploads}
+        initial={entryId} eventFilter={ledgerEvent} />}
       {page === 'Final Allocation' && <StatementAllocation key={selected} statement={statement} change={change}
         edit={editable} eventId={eventId} openEvent={(id) => { setEventId(id); window.scrollTo(0, 0) }}
         openLedger={(event, entry) => { navigate('General Ledger'); setLedgerEvent(event); setEntryId(entry ?? '') }} />}
       {page === 'Dashboard' && <Dashboard statement={statement} openLedger={() => navigate('General Ledger')}
         openAllocation={() => navigate('Final Allocation')} />}
       {page === 'Cash & GCash' && <Cash statement={statement} openEntry={(id) => { navigate('General Ledger'); setEntryId(id) }} />}
-      {page === 'Receipts' && <EventReceipts statement={statement} openEntry={(id) => { navigate('General Ledger'); setEntryId(id) }} />}
+      {page === 'Receipts' && (receiptUploads
+        ? <EventReceipts statement={statement} openEntry={(id) => { navigate('General Ledger'); setEntryId(id) }} />
+        : <p className="demo-panel">Receipt uploads are disabled on this hosted installation.</p>)}
       {page === 'Reconciliation' && <Reconciliation key={selected} statement={statement} change={change} edit={editable} />}
       {page === 'Reports' && <div className="grid gap-4">
+        <section className="demo-panel demo-actions justify-between">
+          <div><h2>Consolidated Financial Statement</h2><p className="demo-notice !mb-0">{statement.name}</p></div>
+          <button className="demo-primary" onClick={() => exportStatement(statement, demo)}>↓ Download CSV</button>
+        </section>
         <Summary statement={statement} />
         <StatementAllocation statement={statement} change={change} edit={false} eventId=""
           openEvent={(id) => { navigate('Final Allocation'); setEventId(id) }}
@@ -117,17 +168,64 @@ export default function StatementDemo({ user, onLogout }: { user: User; onLogout
   </div>
 }
 
+function exportStatement(statement: Statement, demo: boolean) {
+  const totals = finance(statement)
+  const php = (centavos: number) => centavos / 100
+  const events = new Map(statement.events.map(({ id, name }) => [id, name]))
+  const entries = ledger(statement)
+  const name = statement.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'statement'
+  downloadCsv(name + '-consolidated.csv', [
+    ['Consolidated Financial Statement', statement.name],
+    ['Academic year', statement.year],
+    ['Data source', demo ? 'Demo workspace' : 'Saved workspace'],
+    [],
+    ['Financial Summary', 'PHP'],
+    ['Opening Cash', php(statement.opening.Cash)], ['Opening GCash', php(statement.opening.GCash)],
+    ['Recorded Cash', php(totals.balances.Cash)], ['Recorded GCash', php(totals.balances.GCash)],
+    ['Funds received', php(totals.received)], ['Expenses paid', php(totals.spent)],
+    ['Outstanding payments', php(totals.payments)], ['Reimbursements owed', php(totals.reimbursements)],
+    ['Total allocated', php(totals.allocated)], ['Unallocated budget', php(totals.unallocated)],
+    ['Available event budget', php(totals.available)], ['Projected remaining', php(totals.projected)],
+    [],
+    ['Final Allocation'],
+    ['Event', 'Allocated (PHP)', 'Spent (PHP)', 'To Pay (PHP)', 'Available (PHP)'],
+    ...statement.events.map((event) => {
+      const total = finance(statement, event.id)
+      return [event.name, php(total.allocated), php(total.spent), php(total.payments + total.reimbursements), php(total.available)]
+    }),
+    [],
+    ['General Ledger'],
+    ['Date', 'Transaction ID', 'Event', 'Category', 'Items', 'Type', 'Payment status', 'Person in charge', 'Amount (PHP)',
+      'Cash change (PHP)', 'GCash change (PHP)', 'Cash after (PHP)', 'GCash after (PHP)', 'Receipt filename', 'Notes'],
+    ...entries.map(({ entry, balances }) => {
+      const delta = movements(entry)
+      return [
+        entry.day, entry.id, events.get(entry.eventId) ?? '', entry.category, entry.items.map(({ name, quantity }) => quantity + ' × ' + name).join(' / '),
+        entry.reverses ? 'Reversal of ' + entry.reverses : entry.kind, entry.status, entry.person, php(amount(entry)),
+        php(delta.Cash), php(delta.GCash), php(balances.Cash), php(balances.GCash), entry.receipt?.name ?? '', entry.notes,
+      ]
+    }),
+    [],
+    ['Cash Reconciliation'],
+    ['Date', 'Account', 'Recorded (PHP)', 'Counted (PHP)', 'Difference (PHP)', 'Notes'],
+    ...(statement.counts ?? []).map((count) => [count.day, count.account, php(count.expected), php(count.actual), php(count.actual - count.expected), count.notes]),
+  ])
+}
+
 function EventReceipts({ statement, openEntry }: { statement: Statement; openEntry: (id: string) => void }) {
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null)
   const [selectedReceipt, setSelectedReceipt] = useState('')
   const receipts = statement.entries.flatMap((entry) => entry.receipt ? [{ entry, file: entry.receipt }] : [])
   const groups = statement.events.map(({ id, name }) => ({
     id, name, receipts: receipts.filter(({ entry }) => entry.eventId === id),
+    missing: statement.entries.filter((entry) => entry.eventId === id && !entry.receipt && !entry.reverses),
   }))
   const unassigned = receipts.filter(({ entry }) => !statement.events.some(({ id }) => id === entry.eventId))
-  if (unassigned.length) groups.push({
+  const unassignedMissing = statement.entries.filter((entry) => !entry.receipt && !entry.reverses &&
+    !statement.events.some(({ id }) => id === entry.eventId))
+  if (unassigned.length || unassignedMissing.length) groups.push({
     id: '', name: 'No event assigned',
-    receipts: unassigned,
+    receipts: unassigned, missing: unassignedMissing,
   })
   const group = groups.find(({ id }) => id === selectedGroup)
   const receipt = group?.receipts.find(({ entry }) => entry.id === selectedReceipt)
@@ -152,6 +250,13 @@ function EventReceipts({ statement, openEntry }: { statement: Statement; openEnt
       rows={group.receipts.map(({ entry, file }) => ({ id: entry.id, cells: [
         <button className="demo-link" onClick={() => setSelectedReceipt(entry.id)}>{file.name}</button>, entry.day, entry.person,
       ] }))} />
+    {!statement.archived && group.missing.length > 0 && <>
+      <h3 className="font-semibold">Transactions without receipts</h3>
+      <Sheet title="Transactions without receipts" columns={['Date', 'Items', 'Receipt']}
+        rows={group.missing.map((entry) => ({ id: entry.id, cells: [entry.day, entry.items.map((item) => item.name).join(' / '),
+          <button className="demo-link" onClick={() => openEntry(entry.id)}>Add receipt</button>,
+        ] }))} />
+    </>}
   </section>
 
   return groups.length ? <ul className="demo-folder-list">
@@ -167,8 +272,8 @@ function EventReceipts({ statement, openEntry }: { statement: Statement; openEnt
 
 type WorkspaceAction = { kind: 'create' } | { kind: 'edit' | 'rename' | 'delete'; id: string }
 
-function Workspaces({ statements, edit, open, create, change, remove }: {
-  statements: Statement[]; edit: boolean; open: (id: string) => void;
+function Workspaces({ statements, demo, edit, open, create, change, remove }: {
+  statements: Statement[]; demo: boolean; edit: boolean; open: (id: string) => void;
   create: (statement: Statement) => void; change: (id: string, update: (statement: Statement) => Statement) => void;
   remove: (id: string) => void
 }) {
@@ -209,11 +314,10 @@ function Workspaces({ statements, edit, open, create, change, remove }: {
 
   return <>
     <header className="demo-chooser-heading demo-workspace-heading">
-      <div><h1>Financial Workspaces</h1><p>Choose a statement to open its dashboard and tools.</p></div>
+      <div><h1>{demo ? 'Practice Workspaces' : 'Financial Workspaces'}</h1></div>
       {edit && <button type="button" className="demo-primary demo-icon" title="Create financial statement" aria-label="Create financial statement"
         aria-haspopup="dialog" onClick={() => start({ kind: 'create' })}><span aria-hidden="true">+</span></button>}
     </header>
-    <p className="demo-notice">Sample statements and receipt previews clear when you refresh or sign out.</p>
     <ul className="demo-folder-list">
       {statements.map((row) => {
         const totals = finance(row)
@@ -246,11 +350,11 @@ function Workspaces({ statements, edit, open, create, change, remove }: {
           </details>}
         </li>
       })}
-      {!statements.length && <li className="demo-panel">No sample statements.</li>}
+      {!statements.length && <li className="demo-panel">No {demo ? 'sample ' : 'saved '}statements.</li>}
     </ul>
     {edit && action && <StatementDialog title={title} close={() => setAction(undefined)}>{(dismiss) =>
       action.kind === 'delete' && target ? <div className="grid gap-4">
-        <p>Delete <strong>{target.name}</strong> and its records from this demo session?</p>
+        <p>Remove <strong>{target.name}</strong> from {demo ? 'this demo session' : 'saved workspaces'}?</p>
         <div className="demo-actions">
           <button type="button" className="demo-danger" onClick={() => { remove(target.id); dismiss() }}>Delete statement</button>
           <button type="button" onClick={dismiss}>Cancel</button>

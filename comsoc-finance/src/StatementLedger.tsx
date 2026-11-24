@@ -3,11 +3,11 @@ import type { FormEvent, ReactNode } from 'react'
 import { money } from './api'
 import { downloadCsv } from './csv'
 import StatementDialog from './StatementDialog'
-import { accounts, amount, finance, kinds, ledger, linkedReceiptItems, parseMoney, postEntry } from './statementModel'
+import { accounts, amount, finance, kinds, ledger, linkedReceiptItems, movements, parseMoney, postEntry } from './statementModel'
 import type { Account, Entry, Kind, Statement, Status } from './statementModel'
 
 export type Change = (update: (statement: Statement) => Statement) => void
-const blank = () => ({ id: crypto.randomUUID(), name: '', quantity: '1', price: '', planId: '' })
+const blank = () => ({ id: crypto.randomUUID(), name: '', quantity: '1', price: '', planId: '', account: '' as Account | '' })
 export const value = (data: FormData, key: string) => String(data.get(key) ?? '').trim()
 export const today = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Singapore' }).format(new Date())
 const columns = ['Transaction Date', 'Transaction ID', 'Event Name', 'Item / Material Name', 'Expense Category',
@@ -48,7 +48,45 @@ export function ReceiptItems({ entry }: { entry: Entry }) {
 const fileTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf']
 const fileAccept = fileTypes.join(',')
 
-function EntryForm({ statement, change, close }: { statement: Statement; change: Change; close: () => void }) {
+function AttachReceipt({ entry, change }: { entry: Entry; change: Change }) {
+  const [error, setError] = useState('')
+
+  function attach(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    const file = form.get('receipt')
+    const indexes = form.getAll('item').map(Number)
+    if (!(file instanceof File) || !file.size || file.size > 5 * 1024 * 1024 || !fileTypes.includes(file.type)) {
+      setError('Choose a supported image or PDF under 5 MB.')
+      return
+    }
+    if (!indexes.length) {
+      setError('Select at least one item covered by the receipt.')
+      return
+    }
+    change((current) => ({
+      ...current,
+      entries: current.entries.map((row) => row.id === entry.id && !row.receipt
+        ? { ...row, receipt: file, receiptItemIndexes: indexes } : row),
+    }))
+  }
+
+  return <form className="demo-item grid gap-3" onSubmit={attach}>
+    <label>Receipt photo or PDF<input name="receipt" type="file" accept={fileAccept} required /></label>
+    <fieldset className="demo-receipt-items">
+      <legend>Items covered by this receipt</legend>
+      {entry.items.map((item, index) => <label key={index}>
+        <input type="checkbox" name="item" value={index} defaultChecked />{item.name}
+      </label>)}
+    </fieldset>
+    {error && <p className="demo-error" role="alert">{error}</p>}
+    <button className="demo-primary" type="submit">Attach receipt</button>
+  </form>
+}
+
+function EntryForm({ statement, change, close, receiptUploads }: {
+  statement: Statement; change: Change; close: () => void; receiptUploads: boolean
+}) {
   const dialog = useRef<HTMLDialogElement>(null)
   useEffect(() => {
     if (!dialog.current?.open) dialog.current?.showModal()
@@ -67,6 +105,7 @@ function EntryForm({ statement, change, close }: { statement: Statement; change:
   const [receipt, setReceipt] = useState<File>()
   const [excludedItems, setExcludedItems] = useState<string[]>([])
   const [error, setError] = useState('')
+  const splitAccounts = kind === 'Expense' && status === 'Paid'
   const event = statement.events.find((row) => row.id === eventId)
   const total = items.reduce((sum, row) => {
     try { return sum + parseMoney(row.price) * (Number(row.quantity) || 0) } catch { return sum }
@@ -78,7 +117,8 @@ function EntryForm({ statement, change, close }: { statement: Statement; change:
     try {
       const entry: Entry = {
         id: crypto.randomUUID(), day: value(data, 'day'), eventId, category: event ? category : value(data, 'category'),
-        items: items.map((row) => ({ name: row.name.trim(), quantity: Number(row.quantity), price: parseMoney(row.price), planId: row.planId || undefined })),
+        items: items.map((row) => ({ name: row.name.trim(), quantity: Number(row.quantity), price: parseMoney(row.price),
+          planId: row.planId || undefined, account: splitAccounts ? row.account || undefined : undefined })),
         kind, status, account: status === 'To Reimburse' ? 'Personal Funds' : value(data, 'account') as Account,
         person: value(data, 'person'), notes: value(data, 'notes'), receipt,
         receiptItemIndexes: receipt ? items.flatMap((item, index) => excludedItems.includes(item.id) ? [] : [index]) : undefined,
@@ -117,7 +157,7 @@ function EntryForm({ statement, change, close }: { statement: Statement; change:
     <label>Payment status<select value={status} onChange={(e) => setStatus(e.target.value as Status)}>
       <option>Paid</option>{kind === 'Expense' && <><option>To Pay</option><option>To Reimburse</option></>}
     </select></label>
-    <label>{kind === 'Transfer' ? 'Transfer from account' : 'Payment account'}<select key={status} name="account">
+    <label>{kind === 'Transfer' ? 'Transfer from account' : splitAccounts ? 'Default payment account' : 'Payment account'}<select key={status} name="account">
       {status === 'To Reimburse' ? <option>Personal Funds</option> : accounts.map((account) => <option key={account}>{account}</option>)}
     </select></label>
     <label>Person in charge<input name="person" maxLength={120} required /></label>
@@ -129,6 +169,11 @@ function EntryForm({ statement, change, close }: { statement: Statement; change:
           <label>Item {index + 1}<input value={item.name} onChange={(e) => edit({ name: e.target.value })} required maxLength={150} /></label>
           <label>Quantity<input value={item.quantity} onChange={(e) => edit({ quantity: e.target.value })} type="number" min="1" max="999" required /></label>
           <label>Unit price (PHP)<input value={item.price} onChange={(e) => edit({ price: e.target.value })} inputMode="decimal" required /></label>
+          {splitAccounts && <label>Payment account for item {index + 1}
+            <select value={item.account} onChange={(e) => edit({ account: e.target.value as Account | '' })}>
+              <option value="">Use default account</option>{accounts.map((account) => <option key={account}>{account}</option>)}
+            </select>
+          </label>}
           {event && <label>Link planned item<select value={item.planId} onChange={(e) => edit({ planId: e.target.value })}>
             <option value="">Actual only</option>{event.plans.filter((plan) => !plan.cancelled && plan.category === category)
               .map((plan) => <option value={plan.id} key={plan.id}>{plan.name}</option>)}
@@ -138,14 +183,14 @@ function EntryForm({ statement, change, close }: { statement: Statement; change:
       })}
       {items.length < 25 && <button type="button" onClick={() => setItems([...items, blank()])}>Add item</button>}
     </fieldset>
-    <label className="demo-span">Receipt photo or PDF<input type="file" accept={fileAccept} onChange={(e) => {
+    {receiptUploads && <label className="demo-span">Receipt photo or PDF<input type="file" accept={fileAccept} onChange={(e) => {
       const file = e.target.files?.[0]
       if (file && (!fileTypes.includes(file.type) || file.size > 5 * 1024 * 1024)) {
         e.target.value = ''
         setReceipt(undefined)
         setError('Choose a supported image or PDF under 5 MB.')
       } else { setReceipt(file); setExcludedItems([]); setError('') }
-    }} /></label>
+    }} /></label>}
     {receipt && <div className="demo-span grid gap-3">
       <ReceiptPreview file={receipt} />
       <fieldset className="demo-receipt-items">
@@ -166,8 +211,8 @@ function EntryForm({ statement, change, close }: { statement: Statement; change:
   </dialog>
 }
 
-export default function StatementLedger({ statement, change, edit, auditor, initial, eventFilter = '' }: {
-  statement: Statement; change: Change; edit: boolean; auditor: boolean; initial?: string; eventFilter?: string
+export default function StatementLedger({ statement, change, edit, auditor, receiptUploads, initial, eventFilter = '' }: {
+  statement: Statement; change: Change; edit: boolean; auditor: boolean; receiptUploads: boolean; initial?: string; eventFilter?: string
 }) {
   const [search, setSearch] = useState('')
   const [type, setType] = useState('')
@@ -185,10 +230,15 @@ export default function StatementLedger({ statement, change, edit, auditor, init
   const settled = new Set(statement.entries.flatMap((row) => row.settles && !reversed.has(row.id) ? [row.settles] : []))
   const canSettle = details && details.status !== 'Paid' && !settled.has(details.id) && !reversed.has(details.id)
   const displayStatus = (entry: Entry) => reversed.has(entry.id) ? 'Reversed' : settled.has(entry.id) ? 'Settled' : entry.status
+  const paymentAccounts = (entry: Entry) => {
+    if (entry.status !== 'Paid') return [entry.account]
+    const delta = movements(entry)
+    return accounts.filter((account) => delta[account] !== 0)
+  }
   const visible = ledger(statement).filter(({ entry }) => {
     const event = statement.events.find((row) => row.id === entry.eventId)?.name
     return (!type || entry.kind === type) && (!eventId || entry.eventId === eventId) &&
-      (!accountFilter || entry.account === accountFilter || (entry.kind === 'Transfer' && accounts.some((account) => account === accountFilter))) &&
+      (!accountFilter || paymentAccounts(entry).some((account) => account === accountFilter)) &&
       (!statusFilter || displayStatus(entry) === statusFilter) && [entry.id, entry.person, entry.category, event, ...entry.items.map((item) => item.name)]
         .join(' ').toLowerCase().includes(search.trim().toLowerCase())
   })
@@ -205,7 +255,7 @@ export default function StatementLedger({ statement, change, edit, auditor, init
         entry.day, entry.id, eventName(entry) ?? '', entry.items.map(({ name }) => name).join(' / '), entry.category,
         entry.items.length === 1 ? entry.items[0].quantity : entry.items.map(({ quantity }) => quantity).join(' / '),
         entry.items.length === 1 ? entry.items[0].price / 100 : entry.items.map(({ price }) => (price / 100).toFixed(2)).join(' / '),
-        amount(entry) / 100, entryType(entry), entry.account, displayStatus(entry), entry.person,
+        amount(entry) / 100, entryType(entry), paymentAccounts(entry).join(' / '), displayStatus(entry), entry.person,
         entry.receipt?.name ?? '', entry.notes, balances.Cash / 100, balances.GCash / 100,
       ]),
     ])
@@ -241,7 +291,7 @@ export default function StatementLedger({ statement, change, edit, auditor, init
       <div><dt>Paid expenses</dt><dd>{money(totals.spent)}</dd></div>
     </dl>
     <div className="demo-panel demo-ledger-controls">
-      {adding && <EntryForm statement={statement} change={change} close={() => setAdding(false)} />}
+      {adding && <EntryForm statement={statement} change={change} receiptUploads={receiptUploads} close={() => setAdding(false)} />}
       <div className="demo-ledger-filters" role="group" aria-label="Ledger filters">
         <input type="search" aria-label="Search ledger" placeholder="Search ledger" value={search} onChange={(e) => setSearch(e.target.value)} />
         <label className="demo-ledger-select"><select aria-label="Transaction type" value={type} onChange={(e) => setType(e.target.value)}><option value="">Type</option>
@@ -268,26 +318,50 @@ export default function StatementLedger({ statement, change, edit, auditor, init
         </button>
       </div>
     </div>
+    {!full && <ul className="demo-mobile-ledger" aria-label="Ledger transactions">
+      {visible.map(({ entry, balances }) => (
+        <li key={entry.id}>
+          <button type="button" className="demo-mobile-transaction" aria-haspopup="dialog"
+            onClick={() => { setSelected(entry.id); setAdding(false); setError('') }}>
+            <span className="demo-mobile-transaction-main">
+              <strong>{entry.items.map(({ name }) => name).join(' / ')}</strong>
+              <span>{entry.day} · {entryType(entry)}{eventName(entry) && <> · {eventName(entry)}</>}</span>
+            </span>
+            <span className="demo-mobile-transaction-amount">
+              <strong>{money(amount(entry))}</strong><span>{displayStatus(entry)}</span>
+            </span>
+            <span className="demo-mobile-transaction-balances">
+              {paymentAccounts(entry).join(' / ')} · Cash {money(balances.Cash)} · GCash {money(balances.GCash)}
+            </span>
+          </button>
+        </li>
+      ))}
+      {!visible.length && <li className="demo-panel">No matching transactions.</li>}
+    </ul>}
+    <div className={full ? 'min-w-0' : 'demo-ledger-spreadsheet min-w-0'}>
     <Sheet title="General ledger" columns={[...columns, 'Running Balance']}
       rows={visible.map(({ entry, balances }) => ({ id: entry.id, cells: [
         entry.day, <button className="demo-link" aria-haspopup="dialog"
           onClick={() => { setSelected(entry.id); setAdding(false); setError('') }}>{entry.id.slice(0, 8)}</button>,
         eventName(entry) ?? '—', entry.items.map((item) => item.name).join(' / '), entry.category || '—',
         entry.items.map((item) => item.quantity).join(' / '), entry.items.map((item) => money(item.price)).join(' / '), money(amount(entry)),
-        entryType(entry), entry.account,
+        entryType(entry), paymentAccounts(entry).join(' / '),
         <span className="demo-status">{displayStatus(entry)}</span>,
         entry.person, entry.receipt?.name ?? '—', entry.notes || '—',
         <><div>Cash {money(balances.Cash)}</div><div>GCash {money(balances.GCash)}</div></>,
       ] }))} />
+    </div>
     {details && <StatementDialog title="Transaction details" key={details.id} close={() => setSelected('')}>{() =>
       <div className="grid gap-4">
       <p>{details.id} · {details.day} · {details.review ?? 'Pending review'}</p>
-      <ul>{details.items.map((item, index) => <li key={index}>{item.name} · {item.quantity} × {money(item.price)} = {money(item.quantity * item.price)}</li>)}</ul>
+      <ul>{details.items.map((item, index) => <li key={index}>{item.name} · {item.quantity} × {money(item.price)} = {money(item.quantity * item.price)}
+        {details.kind === 'Expense' && details.status === 'Paid' && <> · {item.account ?? details.account}</>}</li>)}</ul>
       {details.receipt && <div className="grid gap-3">
         <ReceiptPreview file={details.receipt} />
         <h3 className="font-semibold">Items linked to receipt</h3>
         <ReceiptItems entry={details} />
       </div>}
+      {receiptUploads && !details.receipt && (edit || auditor) && <AttachReceipt entry={details} change={change} />}
       {Boolean(details.history?.length) && <div><h3>Activity history</h3><ul>{details.history?.map((event) =>
         <li key={event.id}>{new Date(event.at).toLocaleString()} · {event.detail}</li>)}</ul></div>}
       {edit && <form className="demo-form" onSubmit={(e) => {

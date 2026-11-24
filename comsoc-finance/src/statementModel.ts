@@ -3,7 +3,7 @@ export type Status = 'Paid' | 'To Pay' | 'To Reimburse'
 export type Kind = 'Income' | 'Expense' | 'Payment' | 'Reimbursement' | 'Transfer' | 'Loan received' | 'Loan issued' | 'Loan repayment received' | 'Loan repayment paid' | 'Adjustment in' | 'Adjustment out'
 export type Plan = { id: string; category: string; name: string; quantity: number; price: number; cancelled: boolean }
 export type Event = { id: string; name: string; budget: number | null; categories: string[]; plans: Plan[] }
-export type Item = { name: string; quantity: number; price: number; planId?: string }
+export type Item = { name: string; quantity: number; price: number; planId?: string; account?: Account }
 export type Entry = {
   id: string; day: string; eventId: string; category: string; items: Item[]; kind: Kind;
   account: Account | 'Personal Funds'; status: Status; person: string; notes: string;
@@ -37,6 +37,12 @@ export function movements(entry: Entry) {
   const delta = { Cash: 0, GCash: 0 }
   if (entry.status !== 'Paid' || entry.account === 'Personal Funds') return delta
   const total = amount(entry) * (entry.reverses ? -1 : 1)
+  if (entry.kind === 'Expense') {
+    for (const item of entry.items) {
+      delta[item.account ?? entry.account] += item.quantity * item.price * (entry.reverses ? 1 : -1)
+    }
+    return delta
+  }
   delta[entry.account] = incoming.includes(entry.kind) ? total : -total
   if (entry.kind === 'Transfer') delta[entry.account === 'Cash' ? 'GCash' : 'Cash'] = total
   return delta
@@ -96,6 +102,10 @@ export function postEntry(statement: Statement, entry: Entry): Statement {
   if (!entry.person.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(entry.day)) throw new Error('Enter a date and person in charge.')
   if (entry.receipt && !linkedReceiptItems(entry).length) throw new Error('Select at least one item covered by the receipt.')
   if (entry.kind !== 'Expense' && entry.status !== 'Paid') throw new Error('Only expenses can be entered as unpaid.')
+  if (entry.items.some((item) => item.account !== undefined &&
+    (entry.kind !== 'Expense' || entry.status !== 'Paid' || !accounts.includes(item.account)))) {
+    throw new Error('Item payment accounts are available for paid expenses.')
+  }
   if ((entry.account === 'Personal Funds') !== (entry.status === 'To Reimburse')) {
     throw new Error('Use Personal Funds for purchases to reimburse. Use Cash or GCash for other entries.')
   }

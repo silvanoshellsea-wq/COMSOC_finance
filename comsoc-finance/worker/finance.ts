@@ -33,7 +33,7 @@ const queries: Record<string, string> = {
   'event-history': 'SELECT * FROM event_history ORDER BY id DESC',
 }
 
-export async function financeRoute(request: Request, env: Env, path: string, user: User) {
+export async function financeRoute(request: Request, env: Pick<Env, 'DB'>, path: string, user: User) {
   const db = env.DB
   const resource = path.slice('/api/'.length)
 

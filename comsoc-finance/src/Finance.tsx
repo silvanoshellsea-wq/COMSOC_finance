@@ -36,8 +36,8 @@ const obligationKinds = options({ payment: 'Payment', reimbursement: 'Reimbursem
 const loanKinds = options({ loan_received: 'Borrowed from outside COMSOC', loan_issued: 'Lent outside COMSOC', internal_loan: 'Loan between COMSOC accounts' })
 const statuses = options({ pending: 'Pending review', verified: 'Verified', flagged: 'Flagged' })
 
-export default function Finance({ section, data, user, refresh }: {
-  section: string; data: FinanceData; user: User; refresh: () => void
+export default function Finance({ section, data, user, refresh, receiptUploads }: {
+  section: string; data: FinanceData; user: User; refresh: () => void; receiptUploads: boolean
 }) {
   const [report, setReport] = useState('ledger')
   const [eventFilter, setEventFilter] = useState('')
@@ -253,11 +253,11 @@ export default function Finance({ section, data, user, refresh }: {
             {!data.events.length && !groups.size && <p>No events or receipts.</p>}
           </>}
         </section>
-        {form('Upload receipt', 'receipts', [
+        {receiptUploads ? form('Upload receipt', 'receipts', [
           field('transaction_id', 'Transaction (choose one target)', { options: transactions, optional: true }),
           field('obligation_id', 'Obligation (choose one target)', { options: obligationsById, optional: true }),
           field('receipt', 'Receipt file', { type: 'file' }),
-        ], true)}
+        ], true) : <p className="panel">Receipt uploads are disabled for this installation.</p>}
         {table('transactions', 'Transactions with no receipt', data.transactions.filter((row) =>
           !data.receipts.some((receipt) => receipt.transaction_id === row.id)))}
         {treasurer && form('Record missing receipt status', 'receipt-status', [

@@ -1,6 +1,6 @@
 export type Row = Record<string, string | number | null>
 export type User = { username: string; display_name: string; role: 'treasurer' | 'auditor' }
-export type Session = { user: User | null; setupRequired: boolean }
+export type Session = { user: User | null; setupRequired: boolean; receiptUploads: boolean }
 
 export async function api<T>(resource: string, data?: FormData | Record<string, unknown>): Promise<T> {
   const isUpload = data instanceof FormData

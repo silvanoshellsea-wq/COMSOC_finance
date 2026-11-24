@@ -5,6 +5,7 @@ import Finance, { resources } from './Finance'
 import type { FinanceData } from './Finance'
 import { RecordForm } from './Records'
 import StatementDemo from './StatementDemo'
+import ThemePicker from './ThemePicker'
 
 const sections = [
   { id: 'dashboard', label: 'Dashboard', description: 'Review your balances, spending, and commitments.' },
@@ -25,7 +26,7 @@ function currentSection() {
   return sections.find(({ id }) => '#' + id === window.location.hash) ?? sections[0]
 }
 
-function Workspace({ user, reloadSession }: { user: User; reloadSession: () => Promise<void> }) {
+function Workspace({ user, reloadSession, receiptUploads }: { user: User; reloadSession: () => Promise<void>; receiptUploads: boolean }) {
   const [section, setSection] = useState(currentSection)
   const [data, setData] = useState<FinanceData>()
   const [error, setError] = useState('')
@@ -81,6 +82,7 @@ function Workspace({ user, reloadSession }: { user: User; reloadSession: () => P
         </nav>
         <div className="mt-4 flex flex-wrap items-center gap-x-4 px-2 text-sm lg:mt-8">
           <span className="capitalize">{user.display_name} · {user.role}</span>
+          <ThemePicker />
           <button className="min-h-11 underline underline-offset-4" onClick={() => void logout()}>Sign out</button>
         </div>
       </aside>
@@ -104,7 +106,7 @@ function Workspace({ user, reloadSession }: { user: User; reloadSession: () => P
               ]} onSaved={() => void reloadSession()} />
             </>
           ) : data ? (
-            <Finance key={section.id} section={section.id} data={data} user={user} refresh={() => refresh((value) => value + 1)} />
+            <Finance key={section.id} section={section.id} data={data} user={user} receiptUploads={receiptUploads} refresh={() => refresh((value) => value + 1)} />
           ) : !error && <p role="status">Loading financial records…</p>}
         </div>
       </main>
@@ -129,13 +131,15 @@ export default function App() {
 
   if (session?.user) {
     if (window.location.pathname.replace(/\/$/, '') === '/local-records') {
-      return <Workspace user={session.user} reloadSession={reload} />
+      return <Workspace user={session.user} receiptUploads={session.receiptUploads} reloadSession={reload} />
     }
-    return <StatementDemo user={session.user} onLogout={async () => { await api('logout', {}); await reload() }} />
+    const demo = window.location.pathname.replace(/\/$/, '') === '/workspace-demo'
+    return <StatementDemo demo={demo} user={session.user} receiptUploads={session.receiptUploads} onLogout={async () => { await api('logout', {}); await reload() }} />
   }
 
   return (
     <main className="mx-auto grid max-w-2xl gap-4 p-4 sm:p-8">
+      <div className="justify-self-end"><ThemePicker /></div>
       <header className="page-heading">
         <h1>COMSOC Finance</h1>
         <p>{session?.setupRequired ? 'Create the initial Treasurer and Auditor accounts.' : 'Sign in to the financial workspace.'}</p>
@@ -144,13 +148,14 @@ export default function App() {
         <button className="action" onClick={() => void reload()}>Retry</button></div>}
       {session?.setupRequired ? (
         <RecordForm key="setup" title="Initial account setup" resource="setup" label="Create accounts" onSaved={() => void reload()} fields={[
-          { key: 'key', label: 'Local setup key', type: 'password' },
+          { key: 'key', label: 'Setup key', type: 'password' },
           { key: 'treasurerPassword', label: 'Treasurer password (at least 12 characters)', type: 'password' },
           { key: 'auditorPassword', label: 'Auditor password (at least 12 characters)', type: 'password' },
         ]}>
           <p className="sm:col-span-2">
-            In VS Code, open <code>comsoc-finance/.dev.vars</code> and copy the value after <code>SETUP_KEY=</code>.
-            Then choose a new password for each account.
+            {session.receiptUploads ? <>In VS Code, open <code>comsoc-finance/.dev.vars</code> and copy the value after <code>SETUP_KEY=</code>. </> :
+              'Enter the setup key configured for this hosted installation. '}
+            Choose a new password for each account.
           </p>
         </RecordForm>
       ) : session ? (

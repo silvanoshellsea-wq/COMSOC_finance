@@ -8,6 +8,16 @@ const entry = {
   kind: 'Expense', status: 'Paid', account: 'Cash', person: 'Procurement Officer', notes: '',
 }
 
+test('paid items can draw from different accounts inside one Ledger expense', () => {
+  const [semester] = demoStatements
+  const split = { ...entry, items: [...entry.items, { name: 'Tape', quantity: 1, price: 2500, account: 'GCash' }] }
+  const posted = postEntry(semester, split)
+  assert.deepEqual(finance(posted).balances, { Cash: 190000, GCash: 97500 })
+  assert.equal(finance(posted, 'academic').spent, 12500)
+  const reversed = { ...posted, entries: [...posted.entries, { ...split, id: 'undo', reverses: split.id }] }
+  assert.deepEqual(finance(reversed).balances, semester.opening)
+})
+
 test('one Ledger receipt can cover multiple selected items', () => {
   const [semester] = demoStatements
   const receipt = new File(['sample'], 'receipt.png', { type: 'image/png' })

@@ -1,4 +1,4 @@
-import type { User } from './auth.js'
+import type { RuntimeEnv, User } from './auth.js'
 import { field, HttpError, json } from './http.js'
 
 const maxBytes = 5 * 1024 * 1024
@@ -12,8 +12,9 @@ function mediaType(bytes: Uint8Array) {
   return null
 }
 
-export async function receiptRoute(request: Request, env: Env, path: string, user: User) {
+export async function receiptRoute(request: Request, env: RuntimeEnv, path: string, user: User) {
   if (request.method === 'POST' && path === '/api/receipts') {
+    if (!env.RECEIPTS) throw new HttpError(403, 'Receipt uploads are disabled for this installation.')
     const length = Number(request.headers.get('Content-Length'))
     if (!Number.isSafeInteger(length) || length <= 0 || length > maxBytes + 16_384) {
       throw new HttpError(413, 'Select a receipt under 5 MB.')
@@ -55,7 +56,7 @@ export async function receiptRoute(request: Request, env: Env, path: string, use
     const metadata = await env.DB.prepare('SELECT media_type FROM receipts WHERE id = ?')
       .bind(id).first<{ media_type: string }>()
     if (!metadata) throw new HttpError(404, 'Receipt not found.')
-    const object = await env.RECEIPTS.get(id)
+    const object = await env.RECEIPTS?.get(id)
     if (!object) throw new HttpError(404, 'Receipt file not found.')
     return new Response(object.body, { headers: {
       'Content-Type': metadata.media_type,

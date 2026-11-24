@@ -4,6 +4,7 @@ import { financeRoute } from './finance.js'
 import { HttpError, json } from './http.js'
 import { receiptRoute } from './receipts.js'
 import { workflowRoute } from './workflows.js'
+import { statementRoute } from './statements.js'
 
 export default {
   async fetch(request, env) {
@@ -19,6 +20,7 @@ export default {
       if (!user) throw new HttpError(401, 'Sign in to continue.')
 
       return await receiptRoute(request, env, url.pathname, user) ??
+        await statementRoute(request, env, url.pathname, user) ??
         await workflowRoute(request, env, url.pathname.slice('/api/'.length), user) ??
         await financeRoute(request, env, url.pathname, user) ??
         json({ error: 'Endpoint not found.' }, 404)

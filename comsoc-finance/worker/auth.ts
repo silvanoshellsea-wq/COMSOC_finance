@@ -2,7 +2,7 @@ import { field, HttpError, json, readBody } from './http.js'
 
 export type User = { id: string; username: string; display_name: string; role: 'treasurer' | 'auditor' }
 type Credential = User & { password_hash: string; salt: string }
-export type RuntimeEnv = Env & { SETUP_KEY?: string }
+export type RuntimeEnv = Omit<Env, 'RECEIPTS'> & { SETUP_KEY?: string; RECEIPTS?: R2Bucket }
 
 const encoder = new TextEncoder()
 const sessionAge = 8 * 60 * 60
@@ -62,7 +62,7 @@ export async function authRoute(request: Request, env: RuntimeEnv, path: string,
 
   if (request.method === 'GET' && path === '/api/session') {
     const setupRequired = !await db.prepare('SELECT 1 FROM users LIMIT 1').first()
-    return json({ user, setupRequired })
+    return json({ user, setupRequired, receiptUploads: Boolean(env.RECEIPTS) })
   }
 
   if (request.method === 'POST' && path === '/api/setup') {

@@ -1,7 +1,7 @@
 import type { User } from './auth.js'
 import { cents, date, field, HttpError, json, readBody } from './http.js'
 
-export async function workflowRoute(request: Request, env: Env, resource: string, user: User) {
+export async function workflowRoute(request: Request, env: Pick<Env, 'DB'>, resource: string, user: User) {
   const db = env.DB
   if (request.method === 'GET') {
     if (resource === 'loans') {

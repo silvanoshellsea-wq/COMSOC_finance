@@ -20,6 +20,10 @@ npm.cmd run dev
 
 The dev server uses local storage. When working with actual records, keep the server on loopback. To back up the local database and receipts together, stop the server and copy the ignored `.wrangler/state` directory to a private location. Restore that copy only while the server is stopped. Keep backups and `.dev.vars` outside source control.
 
+After signing in, choose a saved workspace or use the plus button to create one. Each workspace saves its own Ledger, allocations, opening balances, and reconciliation data in D1. Receipt files are stored in private local R2. Wait for the saving indicator to clear before closing the app. If another tab changed the same statement, reload the saved version before entering further changes.
+
+**Open practice workspaces** opens the session-only examples. **Existing local records** opens the earlier finance screens and their separate records.
+
 ## Workflows
 
 - Use **Ledger** to record income and direct expenses. Use **Cash & GCash** for account transfers and cash envelopes. Internal transfers affect account balances and leave revenue and expenses unchanged.
@@ -34,4 +38,10 @@ The dev server uses local storage. When working with actual records, keep the se
 
 `npm.cmd test` builds the client and Worker, then runs integration tests against new, isolated D1 and R2 stores. The tests cover roles, transfers, budget allocation, partial reimbursement, overpayment rejection, reversals, loans, reconciliation, and private receipt access. Your local finance data is outside the test stores.
 
-This repository is configured for local development. Hosting, hosted backups, and Cloudflare billing are outside the current setup.
+## Host without R2
+
+The production environment uses a separate hosted D1 database and disables receipt uploads. The regular local dev server still uses local D1 and R2.
+
+Sign in with `npx.cmd wrangler login`. Create the `comsoc-finance-hosted` D1 database on the intended account and set its ID in `env.production.d1_databases` in `wrangler.jsonc`. Apply the migrations to that database with `npx.cmd wrangler d1 migrations apply DB --env production --remote`. Use `npm.cmd run build:hosted` to check the production build and `npm.cmd run deploy` to publish it. Set a new `SETUP_KEY` as a Worker secret for the deployed Worker before creating its first Treasurer and Auditor accounts.
+
+The hosted database starts empty apart from migration seed data. Existing local statements, accounts, and receipts stay in local storage until explicitly migrated.
